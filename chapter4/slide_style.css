@@ -1,0 +1,25 @@
+/* 見出しレベル1 */
+.reveal h1 {
+  color: #00A968;
+}
+
+/* 見出しレベル2 */
+.reveal h2 {
+  color: royalblue;
+  font-size: 30px;
+}
+
+/* 文字サイズ */
+.reveal {
+  font-size: 25px;
+}
+
+/* ソースコードの余白 */
+.reveal pre {
+  margin: 10px;
+}
+
+/* 中央揃えから左寄せに変更 */
+.reveal .slide {
+  text-align: left;
+}
