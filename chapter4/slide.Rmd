@@ -10,6 +10,7 @@ output:
     self_contained: true # cssファイルの組み込み
     reveal_options:
       slideNumber: true # ページ番号
+      progress: true # プログレスバー
 ---
 
 ```{r setup, include=FALSE}
@@ -304,10 +305,4 @@ ggplot() +
 
 　Enjoy!\
 \
-
-
-# 参考書籍
-
-- 「Rが生産性を高める データ分析ワークフロー効率化の実線」igjit・atusy・hanaori 著,技術評論社,2022年.
-
 
