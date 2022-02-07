@@ -7,6 +7,8 @@ output:
     toc: true # 目次
     toc_depth: 2 # 目次に含める見出しレベル
     toc_float: true # 目次のスクロール追跡
+    code_folding: show # コードの折り畳み
+    theme: united # テーマ色
     highlight: breezedark # シンタックスハイライト
     css: document_style.css # cssファイル
     self_contained: true # cssファイルの組み込み
