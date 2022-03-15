@@ -1,0 +1,539 @@
+---
+title: "Chapter5 Googleサービスとの連携"
+author: '<a href="https://www.anarchive-beta.com/">@anemptyarchive</a>'
+date: "`r format(Sys.time(), '%Y/%m/%d')`"
+output: 
+  html_document: 
+    toc: true       # 目次
+    toc_depth: 3    # 目次に含める見出しレベル
+    toc_float: true # 目次のスクロール追跡
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  message = FALSE, warning = FALSE
+)
+```
+
+# 5-3 Googleドライブの操作
+
+　認証方法などの初期設定やドライブ上でのファイルの操作、ファイルの共有などについては本を読んでください。\
+\
+
+
+## ドライブの認証
+
+　初回実行時には次のようなメッセージが表示されます。
+
+```
+> googledrive::drive_find(n_max = 5)
+Is it OK to cache OAuth access credentials in the folder C:/Users/ayumu/AppData/Local/gargle/gargle/Cache between R sessions?
+
+1: Yes
+2: No
+
+Selection: 1
+Waiting for authentication in browser...
+Press Esc/Ctrl + C to abort
+```
+
+　`1`を実行すると、webブラウザが開き認証画面が表示されます。\
+
+　2回目以降の実行時には次のようなメッセージが表示されます。
+
+```
+The googledrive package is requesting access to your Google account.
+Select a pre-authorised account or enter '0' to obtain a new token.
+Press Esc/Ctrl + C to cancel.
+
+1: karanoshoko@gmail.com
+
+Selection: 
+```
+
+　`1`を実行すると、実行した関数の結果が返ってきます。\
+\
+
+
+## 引数
+
+　`googledrive`パッケージの関数によく登場する引数の一覧です。\
+\
+
+| 引数 | 値 | 機能 |
+|----|----|----|
+| `media` | 文字列 | アップロードするファイルの指定 |
+| `file` | 文字列・ファイルID・メタデータ | ドライブ上のファイルを指定 |
+| `path` | 文字列・ファイルID・メタデータ | ドライブ上のファイル・アップロード先の指定 |
+| `id` | ファイルID | ファイルIDの指定 |
+| `name` | 文字列 | アップロード後のファイル名 |
+| `pattern` | 文字列 | 正規表現でファイル名を検索 |
+| `overwrite` | `NA`・論理値 | ファイルが重複する場合の処理 |
+| `` | | |
+
+\ 
+
+
+## メタデータ
+
+　まずは、Google Drive上のファイルのメタデータについて簡単に確認します。メタデータはファイルのアップロードにも利用します。\
+\
+
+　利用するパッケージを読み込みます。
+
+```{r}
+# 利用するパッケージ
+library(googledrive)
+```
+
+\ 
+
+　Googleドライブ上のファイルのメタデータを取得します。
+
+```{r}
+# ファイルのメタデータを取得
+metadata <- drive_get(path = "blog/tozan_book/chapter5/sample.png")
+metadata
+```
+
+　`drive_get()`にファイルパスを指定すると、ファイルのメタデータを取得できます。\
+　ファイルパスは、ファイルが保存されている場所を示すもので、ファイルが保存されている「フォルダ名」と「ファイル名」を`/`で繋いだものです。フォルダが入れ子になっている場合は、`親フォルダ名/子フォルダ名/ファイル名.拡張子`になります。\
+
+　メタデータはデータフレーム(`dribble`オブジェクト)で出力されます。`name`列にファイル名、`path`列にファイルパス、`id`列にファイルID、`drive_resource`列にGoogleアカウント情報などが格納されています。\
+
+　ファイルIDを取り出します。
+
+```{r}
+# ファイルIDを取り出し
+file_id <- as_id(metadata)
+file_id <- metadata[["id"]]
+file_id
+```
+
+　`as_id()`に`dribble`オブジェクトを渡すと、ファイルID(`drive_id`オブジェクト)を返します。\
+　列名を指定して取り出すこともできます。\
+
+　文字列から変換することもできます。
+
+```{r}
+# ファイルIDに変換
+file_id <- as_id("rrsskkymmmhu")
+file_id
+```
+
+　`as_id()`に文字列を渡すと、`drive_id`オブジェクトに変換して返します。\
+\
+
+　Googleドライブ上のフォルダのメタデータを取得します。
+
+```{r}
+# フォルダのメタデータを取得
+metadata <- drive_get(path = "blog/tozan_book/chapter5/")
+metadata
+```
+
+　`drive_get()`にフォルダパスを指定すると、フォルダのメタデータを取得できます。\
+\
+
+　ファイルパスとファイルIDについて確認しました。(話が前後しますが)次からは、ローカル(PC上)のファイルをGoogleドライブに保存する方法を確認していきます。\
+\
+
+
+## ファイルのアップロード
+
+　`googledrive`パッケージを利用してGoogle Driveにファイルをアップロードする方法を3パターン(`drive_upload()`、`drive_update()`、`drive_put()`)確認します。\
+\
+
+　利用するパッケージを読み込みます。
+
+```{r}
+# 利用するパッケージ
+library(googledrive)
+library(palmerpenguins)
+library(ggplot2)
+```
+
+　`palmerpenguins`と`ggplot2`は、例として使用するファイルの作成に使います。\
+\
+
+　例として用いる画像ファイルを作成しておきます。\
+
+　ペンギンデータセットを取得します。
+
+```{r}
+# データセットを取得
+penguins_df <- palmerpenguins::penguins
+head(penguins_df)
+```
+
+　`palmerpenguins`パッケージの`penguins`データセットを利用します。\
+
+　散布図を作成します。
+
+```{r}
+# 散布図を作成
+graph <- ggplot(data = penguins_df, mapping = aes(x = body_mass_g, y = bill_length_mm)) + 
+  geom_point(mapping = aes(color = species, shape = species), size = 3) + 
+  labs(title = "palmerpenguins")
+print(graph)
+```
+
+\ 
+
+　作成したグラフを画像ファイルとして保存します。
+
+```{r}
+# 画像を書き出し
+ggplot2::ggsave(
+  filename = "data/chapter5/sample.png", 
+  plot = graph, 
+  dpi = 100, width = 8, height = 6
+)
+```
+
+　`ggsave()`で、グラフを保存します。\
+　`filename`引数に、「画像を保存するローカルのフォルダ名(フォルダパス)」と「保存する際に名付けるファイル名」を組み合わせた「ファイルパス」を指定します。\
+　`plot`引数に、作成したグラフのデータを指定します。\
+　`dpi`引数は1インチ当たりのドット数、`wide`引数は出力時の横のサイズ(インチ)、`height`引数は縦のサイズ(インチ)です。この例だと800×600インチのpngファイルが出力されます。\
+\
+
+　以降は、PC上の「`data`フォルダ」の中の「`chapter5`フォルダ」に保存されている「画像ファイル`sample.png`」を、Googleドライブ上の「`blog`フォルダ」の中の「`tozan_book`フォルダ」の中の「`chapter5`フォルダ」に「`sample.png`」というファイル名でアップロード(作成・保存)します。\
+\
+
+
+### ・drive_upload
+
+　`drive_upload()`を使って、Googleドライブにファイルをアップロードします。\
+\
+
+　まずは、ファイルパスを用いる方法です。
+
+```{r}
+# パスを用いてファイルをアップロード
+drive_upload(
+  media = "data/chapter5/sample.png", 
+  path = "blog/tozan_book/chapter5/sample.png", 
+  overwrite = TRUE
+)
+```
+
+　`media`引数に、アップロードする(ローカルに保存されている)ファイルのパスを指定します。\
+　`path`引数に、「Googleドライブ上のフォルダ名(フォルダパス)」と「保存する際に名付けるファイル名」を組み合わせたファイルパスを指定します。元のファイル名とアップロード後のファイル名が同じである必要はありません。\
+　`overwrite`引数は、Googleドライブ上に同名のファイルが既に存在する場合の処理を指定します。デフォルトは`NA`で、重複してファイルを作成(アップロード)します。`TRUE`を指定すると、ファイルを置き換えます。`FALSE`だと、ファイルをアップロードしません。\
+
+　アップロードできると、次のように表示されます。
+
+```
+## Local file:
+## * 'data/chapter5/sample.png'
+## Uploaded into Drive file:
+## * 'sample.png' <id:<U+00A0>[ファイルID]>
+## With MIME type:
+## * 'image/png'
+```
+
+\ 
+
+　同名のファイルが既に存在しており、ファイルが置き替えられた場合は、次のように表示されます。
+
+```
+## File trashed:
+## * 'sample.png' <id:<U+00A0>[旧ファイルID]>
+## Local file:
+## * 'data/chapter5/sample.png'
+## Uploaded into Drive file:
+## * 'sample.png' <id:<U+00A0>[新ファイルID]>
+## With MIME type:
+## * 'image/png'
+```
+
+　ファイルが置き換わるとファイルIDが変わります。元々あったファイルはゴミ箱に移動します。\
+\
+
+　アップロードしたファイルのIDを確認してみます。
+
+```{r}
+# ファイルIDを確認
+drive_get(path = "blog/tozan_book/chapter5/sample.png") %>% 
+  as_id()
+```
+
+\ 
+
+　次のようにも引数を指定できます。
+
+```{r}
+# パスを用いてファイルをアップロード
+drive_upload(
+  media = "data/chapter5/sample.png", 
+  path = "blog/tozan_book/chapter5/", 
+  name = "sample.png", 
+  overwrite = TRUE
+)
+
+drive_upload(
+  media = "data/chapter5/sample.png", 
+  path = "blog/tozan_book/chapter5/", 
+  overwrite = TRUE
+)
+```
+
+　`path`引数に保存するフォルダパスを指定して、`name`引数に作成するファイル名を指定します。\
+　`path`引数にフォルダパスを指定して、`name`引数を指定しない場合は、元のファイル名になります。\
+\
+
+　続いて、ファイルIDを用いる方法です。
+
+```{r}
+# フォルダのメタデータを取得
+metadata <- drive_get(path = "blog/tozan_book/chapter5/")
+metadata
+```
+
+　`drive_get()`で、ファイルをアップロードする「フォルダのメタデータ」を取得します。ファイルそのものではなく、フォルダなのに注意してください。`id`列にファイルIDが格納されています。\
+
+　取得したファイルIDを用いてファイルをアップロードします。
+
+```{r}
+# ファイルIDを用いてファイルをアップロード
+drive_upload(
+  media = "data/chapter5/sample.png", 
+  path = metadata[["id"]], 
+  overwrite = TRUE
+)
+
+drive_upload(
+  media = "data/chapter5/sample.png", 
+  path = as_id(metadata), 
+  overwrite = TRUE
+)
+
+drive_upload(
+  media = "data/chapter5/sample.png", 
+  path = metadata, 
+  overwrite = TRUE
+)
+```
+
+　`file`引数に、ファイルID(`drive_id`オブジェクト)またはメタデータ(`dribble`オブジェクト)を指定します。\
+　`media`引数に、アップロードする(ローカルに保存されている)ファイルのパスを指定します。\
+\
+
+　ファイルIDを確認します。
+
+```{r}
+# ファイルIDを確認
+drive_get(path = "blog/tozan_book/chapter5/sample.png") %>% 
+  as_id()
+```
+
+　ファイルIDが変わりました。\
+\
+
+　画像ファイル以外もアップロードできます。
+
+```{r}
+# データフレームを書き出し
+readr::write_csv(penguins_df, file = "data/chapter5/sample.csv")
+
+# データをアップロード
+drive_upload(
+  media = "data/chapter5/sample.csv", 
+  path = "blog/tozan_book/chapter5/", 
+  name = "sample.csv", 
+  overwrite = TRUE
+)
+```
+
+　csvファイルの場合は、ファイル名の拡張子を`csv`にします。\
+\
+
+
+### ・drive_update
+
+　既に存在するファイルを置き換える場合には`drive_update()`を利用できます。\
+\
+
+　まずは、ファイルパスを用いる方法です。
+
+```{r}
+# パスを用いてファイルを更新
+drive_update(
+  file = "blog/tozan_book/chapter5/sample.png", 
+  media = "data/chapter5/sample.png"
+)
+```
+
+　`file`引数に、Googleドライブ上に既に保存されているファイルパスを指定します。\
+　`media`引数に、アップロードする(ローカルに保存されている)ファイルのパスを指定します。\
+
+　ファイルを更新できた場合は、次のように表示されます。
+
+```
+## File updated:
+## * 'sample.png' <id:<U+00A0>[元のファイルID]>
+```
+
+　`drive_update()`でファイルが置き換えた場合は、ファイルIDが変わりません。\
+\
+
+　続いて、ファイルIDを用いる方法です。
+
+```{r}
+# ファイルのメタデータを取得
+metadata <- drive_get(path = "blog/tozan_book/chapter5/sample.png")
+metadata
+```
+
+　`drive_get()`で、更新する「ファイルのメタデータ」を取得します。こちらは、ファイル自体のメタデータを使います。\
+
+　取得したファイルIDを用いてファイルをアップロードします。
+
+```{r}
+# メタデータを用いてファイルを更新
+drive_update(
+  file = metadata[["id"]], 
+  media = "data/chapter5/sample.png"
+)
+
+drive_update(
+  file = as_id(metadata), 
+  media = "data/chapter5/sample.png"
+)
+
+drive_update(
+  file = metadata, 
+  media = "data/chapter5/sample.png"
+)
+```
+
+　`file`引数に、ファイルID(`drive_id`オブジェクト)またはメタデータ(`dribble`オブジェクト)を指定します。\
+　`media`引数に、アップロードする(ローカルに保存されている)ファイルのパスを指定します。\
+\
+
+　ファイルIDを確認してみます。
+
+```{r}
+# ファイルIDを確認
+drive_get(path = "blog/tozan_book/chapter5/sample.png") %>% 
+  as_id()
+```
+
+　ファイルIDが変わっていません。\
+\
+
+
+### ・drive_put
+
+　最後に、`drive_put()`を使ってアップロードします。\
+\
+
+　まずは、ファイルパスを用いる方法です。
+
+```{r}
+# ファイルパスを用いてファイルをアップロードor更新
+drive_put(
+  media = "data/chapter5/sample.png", 
+  path = "blog/tozan_book/chapter5/sample.png"
+)
+```
+
+　`media`引数に、アップロードする(ローカルに保存されている)ファイルのパスを指定します。\
+　`path`引数に、「Googleドライブ上のフォルダ名(フォルダパス)」と「保存する際に名付けるファイル名」を組み合わせたファイルパスを指定します。元のファイル名とアップロード後のファイル名が同じである必要はありません。\
+
+　新たにファイルが作成された(同名のファイルがなかった)場合は次のように表示されます。
+
+```
+## i No pre-existing Drive file at this path. Calling `drive_upload()`.
+## Local file:
+## * 'data/chapter5/sample.png'
+## Uploaded into Drive file:
+## * 'sample.png' <id:<U+00A0>[ファイルID]>
+## With MIME type:
+## * 'image/png'
+```
+
+　`drive_upload()`によってファイルがアップロードされたことが分かります。\
+
+　ファイルが置き替えられた(同名のファイルがあった)場合は次のように表示されます。
+
+```
+## i A Drive file already exists at this path. Calling `drive_update()`.
+## File updated:
+## * 'sample.png' <id:<U+00A0>[元のファイルID]>
+```
+
+　`drive_update()`によってファイルがアップデートされたことが分かります。そのため、ファイルIDは変わりません。\
+\
+
+　`drive_upload()`と同様に、`name`引数を指定できます。
+
+```{r}
+# ファイルパスを用いてファイルをアップロードor更新
+drive_put(
+  media = "data/chapter5/sample.png", 
+  path = "blog/tozan_book/chapter5/", 
+  name = "sample.png"
+)
+
+drive_put(
+  media = "data/chapter5/sample.png", 
+  path = "blog/tozan_book/chapter5/"
+)
+```
+
+　`path`引数に保存するフォルダパスを指定して、`name`引数に作成するファイル名を指定します。\
+　`path`引数にフォルダパスを指定して、`name`引数を指定しない場合は、元のファイル名になります。\
+\
+
+　続いて、ファイルIDを用いる方法です。
+
+```{r}
+# フォルダのメタデータを取得
+metadata <- drive_get(path = "blog/tozan_book/chapter5/")
+metadata
+```
+
+　`drive_get()`で、更新するファイルが保存されている「フォルダのメタデータ」を取得します。ファイルそのものではなく、フォルダなのに注意してください。\
+
+　取得したファイルIDを用いてファイルをアップロードします。
+
+```{r}
+# メタデータを用いてファイルをアップロードor更新
+drive_put(
+  media = "data/chapter5/sample.png", 
+  path = metadata[["id"]], 
+  name = "sample.png"
+)
+
+drive_put(
+  media = "data/chapter5/sample.png", 
+  path = as_id(metadata), 
+  name = "sample.png"
+)
+
+drive_put(
+  media = "data/chapter5/sample.png", 
+  path = metadata, 
+  name = "sample.png"
+)
+```
+
+　`path`引数に、保存するフォルダのファイルIDを指定して、`name`引数にファイル名を指定します。\
+\
+
+　ファイルIDを確認してみます。
+
+```{r}
+# ファイルIDを確認
+drive_get(path = "blog/tozan_book/chapter5/sample.png") %>% 
+  as_id()
+```
+
+　ファイルIDが変わっていません。\
+\
+
+　以上で、Google Driveにファイルをアップロードする方法を確認できました。\
+\
+
