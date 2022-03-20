@@ -1,0 +1,495 @@
+---
+title: "Chapter5 Googleサービスとの連携"
+author: '<a href="https://www.anarchive-beta.com/">@anemptyarchive</a>'
+date: "2022/03/20"
+output: 
+  html_document: 
+    toc: true       # 目次
+    toc_depth: 3    # 目次に含める見出しレベル
+    toc_float: true # 目次のスクロール追跡
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  message = FALSE, warning = FALSE
+)
+```
+
+# 5-4 Googleスプレッドシートの操作
+
+　認証方法などの初期設定やシートの読み込み時の細かい設定、スプレッドシート上での操作などについては本を読んでください。\
+\
+
+　利用するパッケージを読み込みます。
+
+```{r, eval=FALSE}
+# 利用するパッケージ
+library(googledrive)
+library(googlesheets4)
+library(palmerpenguins)
+```
+```{r, echo=FALSE}
+### 資料作成用
+
+library(magrittr)
+```
+
+　例として使用するファイルの作成に`palmerpenguins`を使います。\
+\
+
+
+## スプレッドシートのアップロード
+
+　まずは、Google Dirve上にスプレッドシートをアップロード・作成する方法を確認します。\
+\
+
+　例として用いるため、ペンギンデータセットを取得します。
+
+```{r}
+# データセットを取得
+penguins_df <- palmerpenguins::penguins
+head(penguins_df)
+```
+
+　`palmerpenguins`パッケージの`penguins`データセットを利用します。\
+\
+
+　`googledrive`パッケージを利用して、スプレッドシートとして書き出します。詳しくは5-3節を参照してください。
+
+```{r}
+# データフレームをローカルに書き出し
+readr::write_csv(
+  x = penguins_df, 
+  file = "data/chapter5/penguins.csv", 
+  na = ""
+)
+
+# スプレッドシートとしてアップロード
+googledrive::drive_upload(
+  media = "data/chapter5/penguins.csv", 
+  path = "blog/tozan_book/chapter5/", 
+  name = "penguins", 
+  type = "spreadsheet", 
+  overwrite = TRUE
+)
+```
+
+　`readr`パッケージの`write_csv()`で、データフレームの内容をcsvファイルとしてローカルに保存します。\
+　`googledrive`パッケージの`drive_upload()`で、csvファイルの内容をスプレッドシートとしてGoogleドライブに保存します。\
+
+　この方法だと、元のファイル名がシート名になります。\
+　また欠損値NAを含む場合、デフォルトではセルの値が文字列のNAになります。`write_csv()`の`na`引数に`""`を指定すると、空白のセルになります。\
+\
+
+　または、`googlesheets4`パッケージを利用して、スプレッドシートを作成します。
+
+```{r}
+# スプレッドシートとしてアップロード
+metadata_sheets_id <- googlesheets4::gs4_create(
+  name = "penguins", 
+  sheets = list(Sheet1 = penguins_df)
+)
+```
+
+　`googlesheets4`パッケージの`gs4_create()`で、データフレームの内容をスプレッドシートとしてGoogleドライブに保存します。\
+
+　この方法だと、デフォルトではシート名が「シート1」になります。`sheets`引数にリスト形式で`list(シート名 = データフレーム)`と指定することで、シート名を指定できます。リストに複数のデータフレームを格納(`list(シート1 = データ1, シート2 = データ2)`)すると、複数のシートを持つスプレッドシートを作成できます。\
+　`name`引数に、スプレッドシート名(ファイル名)を指定します。\
+　欠損値NAは空白セルになります。\
+
+　また、ファイルの作成時にシートID(`sheets_id`オブジェクト)が出力されます。詳しくは次で確認します。\
+
+　ただし、アップロード先を指定できないようです(?)。\
+　そこで、作成したスプレッドシートを移動します。
+
+```{r}
+# ファイルを移動
+googledrive::drive_mv(
+  file = metadata_sheets_id, 
+  path = "blog/tozan_book/chapter5/", 
+  overwrite = TRUE
+)
+```
+
+　`googledrive`パッケージの`drive_mv()`で、Googleドライブ上のファイルを移動できます。詳しくは5-3節を参照してください。\
+　`file`引数には、シートIDの他にファイルIDなども指定できます。\
+\
+
+　以降は、Googleドライブ上の「`blog`フォルダ」の中の「`tozan_book`フォルダ」の中の「`chapter5`フォルダ」に「`penguins`」というファイル名でアップロード(作成・保存)したスプレッドシートを使って、メタデータの取得とシートの読み込み・追加を行います。\
+\
+
+
+## メタデータの取得
+
+　次に、Google Drive上のファイルの操作に利用するメタデータについて確認しておきます。ファイルのメタデータ(`dribble`オブジェクト)とファイルID(`drive_id`オブジェクト)については5-3節を参照してください。\
+　ただし、どのタイプのメタデータも利用できるので、不要であれば飛ばしてください。\
+\
+
+　まずは、Googleドライブ上のファイルのメタデータを取得します。
+
+```{r}
+# ドライブ上のファイルのメタデータを取得
+metadata_dribble <- googledrive::drive_get(path = "blog/tozan_book/chapter5/penguins")
+
+# シートIDからファイルのメタデータを取得
+metadata_dribble <- googledrive::as_dribble(metadata_sheets_id)
+metadata_dribble
+```
+
+　`drive_get()`にファイルパスを指定するか、`as_dribble()`にファイルIDまたはシートIDを指定します。ファイルのメタデータは、`dribble`オブジェクト(データフレーム)として扱われます。\
+
+　ファイルIDを取得します。
+
+```{r}
+# ファイルのメタデータからファイルIDを取得
+metadata_drive_id <- metadata_dribble[["id"]]
+metadata_drive_id <- googledrive::as_id(metadata_dribble)
+
+# シートIDからファイルIDを取得
+metadata_drive_id <- googledrive::as_id(metadata_sheets_id)
+metadata_drive_id
+```
+
+　`dribble`オブジェクトの`id`列を取り出すか、`as_id()`にファイルのメタデータまたはシートIDを指定します。ファイルIDは、`drive_id`オブジェクトとして扱われます。\
+
+　シートIDを取得します。
+
+```{r}
+# ファイルのメタデータからシートIDを取得
+metadata_sheets_id <- googlesheets4::as_sheets_id(metadata_dribble)
+
+# ファイルIDからシートIDを取得
+metadata_sheets_id <- googlesheets4::as_sheets_id(metadata_drive_id)
+metadata_sheets_id
+```
+
+　`as_sheets_id()`に、ファイルのメタデータまたはファイルIDを指定します。シートIDは、`sheets_id`オブジェクトとして扱われます。ID自体はファイルIDと同じです。\
+
+　スプレッドシートのメタデータを取得します。
+
+```{r}
+# スプレッドシートのメタデータを取得
+metadata_gs4_list <- googlesheets4::gs4_get(ss = metadata_dribble)
+metadata_gs4_list <- googlesheets4::gs4_get(ss = metadata_drive_id)
+metadata_gs4_list <- googlesheets4::gs4_get(ss = metadata_sheets_id)
+metadata_gs4_list
+```
+
+　`gs4_get()`に、ファイルのメタデータまたはファイルID、シートIDを指定します。スプレッドシートのメタデータは、`googlesheets4_spreadsheet`オブジェクト(リスト)として扱われます。\
+　コンソールに表示される内容はシートID(`sheets_id`オブジェクト)と同じですが、保持している内容は異なります。
+
+```{r}
+# 中身を確認
+summary(metadata_gs4_list)
+```
+
+　(こういうときは`summary`でいいのでしょうか？S3クラスとやらのことは全然知らないので触れないように書いているので注意してください。)\
+
+　スプレッドシートのメタデータ(リスト)から、シートの内容の情報を取り出してみます。
+
+```{r}
+# シートのメタデータからシートの情報を抽出
+metadata_gs4_list[["sheets"]]
+```
+
+　データフレームとして格納されています。\
+　さらに、シート名の情報を取り出してみます。
+
+```{r}
+# シートのメタデータからシート名を抽出
+metadata_gs4_list[["sheets"]][["name"]]
+```
+
+　始めに指定したシート名になっているのを確認できました。\
+
+　スプレッドシートのメタデータからファイルIDを取得します。
+
+```{r}
+# シートのメタデータからファイルIDを抽出
+metadata_drive_id <- googledrive::as_id(metadata_gs4_list)
+metadata_drive_id
+```
+
+　`as_id()`にスプレッドシートのメタデータを指定します。\
+
+　スプレッドシートのメタデータからシートIDを取得します。
+
+```{r}
+# シートのメタデータからシートIDを抽出
+metadata_sheets_id <- metadata_gs4_list[["spreadsheet_id"]]
+metadata_sheets_id <- googlesheets4::as_sheets_id(metadata_gs4_list)
+metadata_sheets_id
+```
+
+　`googlesheets4_spreadsheet`オブジェクトの`spreadsheet_id`を取り出すか、`as_sheets_id()`にスプレッドシートのメタデータを指定します。\
+\
+
+
+## シートの読み込み
+
+　`googlesheets4`パッケージを利用して、Google Drive上のスプレッドシートをデータフレームとして読み込みます。\
+\
+
+　データを読み込むスプレッドシートのシートIDを取得します。
+
+```{r}
+# シートIDを取得
+metadata_sheets_id <- googledrive::drive_get(path = "blog/tozan_book/chapter5/penguins") %>% 
+  googlesheets4::as_sheets_id()
+```
+
+　`drive_get()`にファイルパスを指定して、ファイルのメタデータ(`dribble`オブジェクト)を取得します。\
+
+　指定したスプレッドシートからデータを読み込みます。
+
+```{r}
+# デフォルトの設定でデータを取得
+df_default <- googlesheets4::read_sheet(ss = metadata_sheets_id)
+head(df_default)
+```
+
+　`read_sheet()`で、スプレッドシートの内容を読み込みます。`googlesheets4`パッケージの命名規則に沿った`range_read()`と同じ関数です。\
+　`ss`引数(第1引数)に、スプレッドシートのメタデータ(`dribble`・`drive_id`・`sheets_id`オブジェクト)を指定します。\
+
+　読み込み時の処理を引数で設定できます。
+
+```{r}
+# データを取得
+df <- googlesheets4::read_sheet(
+  ss = metadata_sheets_id, 
+  sheet = "Sheet1", 
+  col_types = "ccddiici", 
+  na = c("", "NA")
+) %>% 
+  # 文字列NAを欠損値NAに変換
+  dplyr::mutate(
+    species = factor(species), 
+    island = factor(island), 
+    sex = factor(sex)
+  )
+head(df)
+```
+
+　`sheet`引数に、読み込むシートを指定します。シート名またはシート番号を指定できます。デフォルトは1番目のシートです。\
+　`col_types`引数に、列ごとの型を指定します。\
+　`na`引数に、欠損値として扱う値を指定します。デフォルトは空白セル(`""`)です。この例では、空白と文字列のNA(`"NA"`)をベクトルで指定しています。\
+　因子型の場合は、`factor()`で変換する必要があります。\
+\
+
+
+### ・メモ
+
+　最終的に書き出し・読み込み時の引数の設定でスマートに処理できたのですが、試行錯誤していた際にあれこれしたメモです。不要であれば飛ばしてください。\
+\
+
+　`readr::write_csv()`で書き出す際に、`na`引数を指定しないと欠損値が文字列NAとして書き出されます。そのデータを`googlesheets4::read_sheet()`で読み込む際に、`na`引数を指定しないと次のようになりました。
+
+```{r}
+# データフレームをローカルに書き出し
+readr::write_csv(
+  x = penguins_df, 
+  file = "data/chapter5/tmp_penguins.csv"
+)
+
+# スプレッドシートとしてアップロード
+googledrive::drive_put(
+  media = "data/chapter5/tmp_penguins.csv", 
+  path = "blog/tozan_book/chapter5/", 
+  name = "tmp_penguins", 
+  type = "spreadsheet", 
+)
+
+# シートIDを取得
+tmp_metadata_sheets_id <- googledrive::drive_get(path = "blog/tozan_book/chapter5/tmp_penguins") %>% 
+  googlesheets4::as_sheets_id()
+
+# デフォルトの設定でデータを取得
+df_default <- googlesheets4::read_sheet(ss = tmp_metadata_sheets_id)
+
+# デフォルトの設定の場合
+head(df_default)
+```
+
+　1つの列に数値と文字列が含まれていると、リスト形式になるようです(？)。\
+　`unlist()`で、リストからベクトルに変換します。
+
+```{r}
+# データフレームを調整
+df_default %>% 
+  # リスト型の列からベクトル型の列に変換
+  dplyr::mutate(
+    bill_length_mm = unlist(bill_length_mm), 
+    bill_depth_mm = unlist(bill_depth_mm), 
+    flipper_length_mm = unlist(flipper_length_mm), 
+    body_mass_g = unlist(body_mass_g)
+  ) %>% 
+  head()
+```
+
+　1つの列(ベクトル)には同じ型の値しか持てないので、全ての値が文字列型に変換されました。\
+　`as.numeric()`で数値型に、`as.integer()`で整数型に変換します。
+
+```{r}
+# データフレームを調整
+df_default %>% 
+  # リスト型の列からベクトル型の列に変換
+  dplyr::mutate(
+    bill_length_mm = unlist(bill_length_mm), 
+    bill_depth_mm = unlist(bill_depth_mm), 
+    flipper_length_mm = unlist(flipper_length_mm), 
+    body_mass_g = unlist(body_mass_g)
+  ) %>% 
+  # 文字列型から整数型・数値型に変換
+  dplyr::mutate(
+    bill_length_mm = as.numeric(bill_length_mm), 
+    bill_depth_mm = as.numeric(bill_depth_mm), 
+    flipper_length_mm = as.integer(flipper_length_mm), 
+    body_mass_g = as.integer(body_mass_g), 
+    year = as.integer(year)
+  ) %>% 
+  head()
+```
+
+　数値型・整数型に変換される際に、文字列`"NA"`が欠損値`NA`に変換されました。\
+　文字列型に読み込まれた列についても、欠損値に置換します。
+
+```{r}
+# データフレームを調整
+df_default %>% 
+  # リスト型の列からベクトル型の列に変換
+  dplyr::mutate(
+    bill_length_mm = unlist(bill_length_mm), 
+    bill_depth_mm = unlist(bill_depth_mm), 
+    flipper_length_mm = unlist(flipper_length_mm), 
+    body_mass_g = unlist(body_mass_g)
+  ) %>% 
+  # 文字列型から整数型・数値型に変換
+  dplyr::mutate(
+    bill_length_mm = as.numeric(bill_length_mm), 
+    bill_depth_mm = as.numeric(bill_depth_mm), 
+    flipper_length_mm = as.integer(flipper_length_mm), 
+    body_mass_g = as.integer(body_mass_g), 
+    year = as.integer(year)
+  ) %>% 
+  # 文字列NAを欠損値NAに変換
+  dplyr::mutate(
+    species = dplyr::if_else(species == "NA", true = as.character(NA), false = species), 
+    island = dplyr::if_else(island == "NA", true = as.character(NA), false = island), 
+    sex = dplyr::if_else(sex == "NA", true = NA_character_, false = sex)
+  ) %>% 
+  head()
+```
+
+　欠損値`NA`にも型があるため、文字列型の欠損値`NA_character_`を使う必要があります。`as.character(NA)`でも処理できます。整数型であれば`NA_integer_`、数値型であれば`NA_real_`です。\
+　最後に、`factor()`で、文字列型から因子型に変換します。
+
+```{r}
+# データフレームを調整
+df_default %>% 
+  # リスト型の列からベクトル型の列に変換
+  dplyr::mutate(
+    bill_length_mm = unlist(bill_length_mm), 
+    bill_depth_mm = unlist(bill_depth_mm), 
+    flipper_length_mm = unlist(flipper_length_mm), 
+    body_mass_g = unlist(body_mass_g)
+  ) %>% 
+  # 文字列型から整数型・数値型に変換
+  dplyr::mutate(
+    bill_length_mm = as.numeric(bill_length_mm), 
+    bill_depth_mm = as.numeric(bill_depth_mm), 
+    flipper_length_mm = as.integer(flipper_length_mm), 
+    body_mass_g = as.integer(body_mass_g), 
+    year = as.integer(year)
+  ) %>% 
+  # 文字列NAを欠損値NAに変換
+  dplyr::mutate(
+    species = dplyr::if_else(species == "NA", true = NA_character_, false = species), 
+    island = dplyr::if_else(island == "NA", true = NA_character_, false = island), 
+    sex = dplyr::if_else(sex == "NA", true = NA_character_, false = sex)
+  ) %>% 
+  # 文字列型から因子型に変換
+  dplyr::mutate(
+    species = factor(species), 
+    island = factor(island), 
+    sex = factor(sex)
+  ) %>% 
+  head()
+```
+
+　元のデータフレームが得られました。\
+\
+
+　ここまでの処理をまとめて行います。
+
+```{r}
+# データフレームを調整
+df2 <- df_default %>% 
+  dplyr::mutate(
+    species = dplyr::if_else(species == "NA", true = NA_character_, false = species) %>% 
+      factor(), 
+    island = dplyr::if_else(island == "NA", true = NA_character_, false = island) %>% 
+      factor(), 
+    bill_length_mm = unlist(bill_length_mm) %>% 
+      as.numeric(), 
+    bill_depth_mm = unlist(bill_depth_mm) %>% 
+      as.numeric(), 
+    flipper_length_mm = unlist(flipper_length_mm) %>% 
+      as.integer(), 
+    body_mass_g = unlist(body_mass_g) %>% 
+      as.integer(), 
+    year = as.integer(year), 
+    sex = dplyr::if_else(sex == "NA", true = NA_character_, false = sex) %>% 
+      factor()
+  )
+head(df2)
+```
+
+\ 
+
+
+## シートの書き出し
+
+　`googlesheets4`パッケージを利用して、データフレームをGoogle Drive上のスプレッドシートに書き出します。\
+\
+
+　分かりやすいように、データフレームの内容を書き替えておきます。
+
+```{r}
+# NAを含む行を削除
+df_drop_na <- tidyr::drop_na(df)  
+head(df_drop_na)
+```
+
+　`drop_na()`で、欠損値を含む行を削除できます。\
+
+　既存のスプレッドシートに、新しいシートとして書き出します。
+
+```{r}
+# シートを追加
+googlesheets4::write_sheet(
+  data = df_drop_na, 
+  ss = metadata_sheets_id, 
+  sheet = "drop_na"
+)
+```
+
+　`write_sheet()`で、既存のスプレッドシートにシートを追加します。`googlesheets4`パッケージの命名規則に沿った`sheet_write()`と同じ関数です。\
+　`data`引数(第1引数)に、データフレームを指定します。\
+　`ss`引数に、スプレッドシートのメタデータ(`dribble`・`drive_id`・`sheets_id`オブジェクト)を指定します。\
+　`sheet`引数に、シート名を指定します。既存のシート名を指定するとそのシートの内容が書き替えられます。\
+
+　スプレッドシートのメタデータを確認してみます。
+
+```{r}
+# シートのメタデータを取得
+metadata_gs4_list <- googlesheets4::gs4_get(ss = metadata_sheets_id)
+metadata_gs4_list
+```
+
+　シートが追加されているのが分かります。また、ファイルIDは変わりません。\
+\
+
+　以上で、Google Driveにスプレッドシートに読み込み・書き出しを行う方法を確認しました。\
+\
+
