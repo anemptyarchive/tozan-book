@@ -1,0 +1,1380 @@
+---
+title: "Chapter6 Web上のデータ取得とWebブラウザの操作"
+author: '<a href="https://www.anarchive-beta.com/">@anemptyarchive</a>'
+date: "2022/04/26"
+output: 
+  html_document: 
+    toc: true       # 目次
+    toc_depth: 3    # 目次に含める見出しレベル
+    toc_float: true # 目次のスクロール追跡
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, 
+  message = FALSE, warning = FALSE
+)
+```
+
+# 処理の一時停止用の関数の実装
+
+　スクレイピングでは、サイトに負荷がかかりすぎないように処理を一時停止する必要があります。そこで、停止時の待ち時間を表示する関数を作成しておきます。
+
+```{r}
+# 一時停止のカウントダウンバー
+sleep_bar <- function(s = 10) {
+  # プログレスバーを表示
+  message("\r", "[", rep("#", times = s), "] ", s, "s", appendLF = FALSE)
+  
+  for(i in 1:s) {
+    # 処理を一時停止
+    Sys.sleep(1)
+    
+    # 前回のメッセージを初期化
+    message("\r", rep(" ", s + 10), appendLF = FALSE)
+    
+    # プログレスバーを表示
+    message(
+      "\r", "[", rep("#", times = s - i), rep(" ", times = i), "] ", s - i, "s", 
+      appendLF = FALSE
+    )
+  }
+  
+  # 改行
+  message("\r")
+}
+```
+
+　この関数を利用すると次のように表示されます。
+
+```
+> sleep_bar()
+[######    ] 6s
+```
+
+　1秒ごとに`#`が減っていきます。\
+　待ち時間が気にならなければ、`Sys.sleep()`をそのまま使います。\
+\
+
+
+# 記事URLのスクレイピング
+
+　はてなブログにおいて、投稿年ごとの記事一覧ページから記事のURLを収集します。\
+\
+
+　次のパッケージを利用します。
+
+```{r, eval=FALSE}
+# 利用パッケージ
+library(rvest)
+library(polite)
+library(magrittr)
+```
+
+```{r, echo=FALSE}
+### 資料作成用:(チェック用)
+
+# 利用パッケージ
+library(magrittr)
+```
+
+　`rvest`と`polite`は、スクレイピングに関するパッケージです。詳しくは、本の6-2節と6-7節を参照してください。\
+　この記事では、`パッケージ名::関数名()`の記法を使うので、パッケージを読み込む必要はありません。\
+　ただし、パイプ演算子`%>%`を使うため、`magrittr`パッケージは読み込む必要があります。\
+\
+
+
+## 記事URLの収集
+
+　ブログのURLを指定します。
+
+```{r}
+# ブログのURLを指定
+blog_url <- "https://www.anarchive-beta.com/"
+```
+
+　この記事の内容は、はてなブログを対象としています。\
+
+　スクレイピングのルールを確認しておきます。
+
+```{r}
+# スクレイピングルールの確認
+session <- polite::bow(url = blog_url)
+session
+```
+
+　`polite`パッケージの`bow()`で確認できます。詳しくは6-7節を参照してください。\
+
+　年ごとの記事一覧ページのURLは、ブログURLの後に検索対象の年を含めて、`ブログURL/archive/年/?page=ページ番号`です。2022年の2ページ目だと「[https://www.anarchive-beta.com/archive/2022?page=2](https://www.anarchive-beta.com/archive/2022?page=2)」となります。\
+
+　`for()`を使って年`year`とページ番号`page`を変更して、一覧ページのURL`target_url`を作成して、記事のURLを取得していきます。
+
+```{r, eval=FALSE}
+# 期間(年)を指定
+year_from <- 2018
+year_to   <- 2022
+
+# 最大ページ数を指定:(念のため)
+max_page <- 10
+
+# 年ごとに記事URLを収集
+url_vec <- c() # 受け皿を作成
+for(year in year_from:year_to) {
+  
+  # 一覧ページを切り替え
+  url_year_vec <- c() # 初期化
+  for(page in 1:max_page) {
+    
+    # 一覧ページのURLを作成
+    target_url <- paste0(blog_url, "archive/", year, "?page=", page)
+    print(target_url)
+    
+    # 一覧ページのHTMLを取得
+    #session <- polite::nod(bow = session, path = target_url) # politeパッケージの場合
+    target_html <- try(
+      rvest::read_html(target_url), # rvestパッケージの場合
+      #polite::scrape(bow = session), # politeパッケージの場合
+      silent = TRUE
+    )
+    
+    # 記事が無ければ次の年に進む
+    if(inherits(target_html, what = "try-error")) break
+    
+    # 記事のURLを取得
+    url_page_vec <- target_html %>% 
+      rvest::html_elements(".entry-title") %>% # 記事タイトル
+      rvest::html_elements("a") %>% # 記事リンク
+      rvest::html_attr("href") # 記事URL
+    
+    # 同じ年のURLを結合
+    url_year_vec <- c(rev(url_page_vec), url_year_vec)
+    
+    # 処理を一時停止
+    Sys.sleep(10)
+    #sleep_bar(10)
+  }
+  
+  # 全ての年のURLを結合
+  url_vec <- c(url_vec, url_year_vec)
+}
+```
+
+```{r, echo=FALSE}
+### 資料作成用:(データの読込)
+
+# URLデータを読み込み
+url_vec <- readRDS(file = "data/ch6_2/url.rds")
+```
+
+　`rvest`パッケージの`read_html()`または`polite`パッケージの`scrape()`で、一覧ページのHTMLを取得します。\
+　ただし、記事がないときはエラーになります。そこで、`if()`を使って、エラーが起きると(記事がないと)その年のページ切り替えループを終了(`break`)して、次の年の処理に移ります。`try()`については、6-5節を参照してください。\
+　(`while()`を使えばいいのですが、無限ループが怖かったので`max_page`を指定して`for()`ループしています。)\
+
+　一覧ページにおける記事リンクの部分のHTMLは、次のようになっています。
+
+```{html}
+<h1 class="entry-title">
+  <a class="entry-title-link" href="記事URL">記事タイトル</a>
+</h1>
+```
+
+　`html_elements(".entry-title")`で、全ての記事の`<h1 class="entry-title">～</h1>`の部分を抜き出します。\
+　さらに、`html_elements("a")`と`html_attr("href")`で、`<a class="entry-title-link" href="記事URL">～</a>`の記事URLを抜き出します。\
+
+　一覧ページの全ての記事リンクを同時に取得できます。記事URLのベクトルを`url_page_vec`として、全ての記事URLを`url_vec`に追加していきます。\
+
+　収集した記事URLは、次のようになります。
+
+```{r}
+# URLを確認
+url_vec[1:5]
+```
+
+　はてなブログの記事のURLは、(デフォルトでは)ブログURLの後に記事の投稿日時が付いて`ブログURL/entry/yyyy/mm/dd/hhmmss`となります。\
+\
+
+
+# ヒートマップによる投稿数の可視化
+
+　はてなブログにおける記事の投稿数をヒートマップで可視化します。\
+\
+
+　次のパッケージを利用します。
+
+```{r, eval=FALSE}
+# 利用パッケージ
+library(tidyverse)
+library(lubridate)
+```
+
+```{r, echo=FALSE}
+### 資料作成用:(チェック用)
+
+# 利用パッケージ
+library(magrittr)
+library(ggplot2)
+```
+
+　`lubridate`は、時間データに関するパッケージです。\
+　この記事では、基本的に`パッケージ名::関数名()`の記法を使うので、パッケージを読み込む必要はありません。\
+　ただし、パイプ演算子`%>%`を使うため`magrittr`と、作図コードがごちゃごちゃしないようにパッケージ名を省略するため`ggplot2`は読み込む必要があります。\
+\
+
+
+## 集計と作図
+
+　記事の投稿数を日や月ごとに集計してヒートマップで可視化します。\
+\
+
+
+### 日別
+
+　まずは、日ごとに投稿数を集計して可視化します。\
+\
+
+　対象とする期間を指定します。
+
+```{r}
+# 期間(年月日)を指定
+date_from <- "2018-12-01"
+date_to   <- "2022-04-15"
+date_to   <- lubridate::today() # 現在の日付
+```
+
+　開始日を`date_from`、終了日を`date_to`として期間を指定します。文字列で`yyyy-mm-dd`や`yyyy/mm/dd`、`yyyymmdd`などと指定できます。現在の日付の場合は、`lubridate`パッケージの`today()`を使います。\
+
+　期間内の全ての日付を持つデータフレームを作成します。
+
+```{r}
+# 期間内の日付情報を作成
+base_df <- seq(
+  from = lubridate::as_date(date_from), 
+  to = lubridate::as_date(date_to),
+  by = "day"
+) %>% # 日付ベクトルを作成
+  tibble::tibble(date = .) # データフレームに変換
+head(base_df)
+```
+
+　`seq()`で、第1引数`from`から第2引数`to`までのベクトルを作成します。第3引数`by`に`"day"`を指定すると、1日刻みのベクトルを作成します。\
+　文字列型で指定した日付`date_***`を`as_date()`でDate型に変換して使います。\
+　作成した日付ベクトルを使って、`tibble()`でデータフレームを作成します。\
+
+　記事URLから投稿日を抽出します。
+
+```{r}
+# 記事URLを投稿日に変換
+date_vec <- url_vec %>% 
+  stringr::str_remove(pattern = paste0(blog_url, "entry/")) %>% # 日時を示す文字列を抽出
+  lubridate::as_datetime(tz = "Asia/Tokyo") %>% # POSIXt型に変換
+  lubridate::as_date() %>% # Date型に変換
+  sort() # 昇順に並び替え
+date_vec[1:5]
+```
+
+　記事URLは`ブログURL/entry/yyyy/mm/dd/hhmmss`なので、日付と無関係な部分を`str_remove()`で削除します。\
+　文字列型の日付を`as_datetime()`でPOSIXt型に変換して、さらに`as_date()`でDate型に変換します。(文字列処理の段階で`/hhmmss`を消しておけば`as_datetime()`は不要です。)\
+
+　日ごとの投稿数を集計します。
+
+```{r}
+# 日ごとに投稿数を集計
+date_df <- tibble::tibble(date = date_vec) %>% 
+  dplyr::count(date, name = "post") # 投稿数をカウント
+head(date_df)
+```
+
+　投稿日のベクトルをデータフレームにして、`count()`で同じ日付の数をカウントします。\
+　投稿がなかった日はデータフレームに含まれません。\
+
+　投稿がなかった日付を含めた作図用のデータフレームを作成します。
+
+```{r}
+# 作図用のデータフレームを作成
+post_df <- date_df %>% 
+  dplyr::right_join(base_df, by = "date") %>% # 日付情報に統合
+  dplyr::mutate(
+    post = tidyr::replace_na(post, replace = 0), # 投稿なしを0に置換
+    year_month = format(date, "%Y-%m"), # 年月を抽出
+    day = format(date, "%d") # 日を抽出
+  )
+head(post_df)
+```
+
+　`right_join()`を使って全ての日付を持つ`base_df`と結合することで、全ての日付を持つ投稿数のデータフレームになります。\
+　ただし、投稿がない日は欠損値`NA`になるので、`replace_na()`で`0`に置換します。\
+　グラフのx軸とy軸の値として、`format()`で年月と日の値を抽出します。\
+
+　投稿数のヒートマップを作成します。
+
+```{r}
+# ヒートマップを作成
+graph <- ggplot(post_df, aes(x = year_month, y = day, fill = post)) + 
+  geom_tile() + # ヒートマップ
+  #geom_text(mapping = aes(label = post), color = "white") + # 記事数ラベル
+  scale_fill_gradient(low = "white", high = "hotpink") + # タイルの色
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) + # 軸目盛ラベル
+  labs(title = paste0(blog_url, "の記事投稿数"), 
+       subtitle = paste("総記事数：", sum(post_df[["post"]])), 
+       x = "年-月", y = "日", 
+       fill = "記事数")
+graph
+```
+
+```{r, echo=FALSE}
+### 資料作成用:(再掲)
+
+# ヒートマップを作成
+graph <- ggplot(post_df, aes(x = year_month, y = day, fill = post)) + 
+  geom_tile() + # ヒートマップ
+  geom_text(mapping = aes(label = post), color = "white") + # 記事数ラベル
+  scale_fill_gradient(low = "white", high = "hotpink") + # タイルの色
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5)) + # 軸目盛ラベル
+  labs(title = paste0(blog_url, "の記事投稿数"), 
+       subtitle = paste("総記事数：", sum(post_df[["post"]])), 
+       x = "年-月", y = "日", 
+       fill = "記事数")
+graph
+```
+
+　`geom_tile()`で、ヒートマップを描画します。\
+　`geom_text()`で、投稿数を重ねて描画できます。\
+
+　作成したグラフは、`ggsave()`で保存できます。
+
+```{r, eval=FALSE}
+# グラフを保存
+ggplot2::ggsave(
+  filename = "フォルダ名/ファイル名.png", plot = graph, 
+  dpi = 100, width = 12, height = 9
+)
+```
+
+　`plot`引数にグラフ、`filename`引数に保存するファイルパス(`"(保存する)フォルダ名/(作成する)ファイル名.png"`)を指定します。\
+\
+
+
+### 月別
+
+　次は、月ごとに投稿数を集計して可視化します。\
+\
+
+　指定した期間内の全ての月を持つデータフレームを作成します。
+
+```{r}
+# 期間内の月情報を作成
+base_df <- seq(
+  from = date_from %>% 
+    lubridate::as_date() %>% 
+    lubridate::floor_date(unit = "mon"), 
+  to = date_to %>% 
+    lubridate::as_date() %>% 
+    lubridate::floor_date(unit = "mon"), 
+  by = "mon"
+) %>% # 月ベクトルを作成
+  tibble::tibble(date = .) # データフレームに変換
+head(base_df)
+```
+
+　`seq()`の第3引数`by`に`"mon"`を指定すると、1か月刻みのベクトルを作成します。\
+　指定した日付`date_***`を`floor_date()`で月初の日付にして(日にちを切り捨てて)使います。こちらも`unit`引数に`"mon"`を指定します。\
+
+　記事URLから投稿月を抽出します。
+
+```{r}
+# 記事URLを投稿月に変換
+date_vec <- url_vec %>% 
+  stringr::str_remove(pattern = paste0(blog_url, "entry/")) %>% # 日時を示す文字列を抽出
+  lubridate::as_datetime(tz = "Asia/Tokyo") %>% # POSIXt型に変換
+  lubridate::as_date() %>% # Date型に変換
+  lubridate::floor_date(unit = "mon") %>% # 月単位に切り捨て
+  sort() # 昇順に並び替え
+date_vec[1:5]
+```
+
+　こちらも、`floor_date()`で月単位に切り捨てます。\
+
+　月ごとの投稿数を集計します。
+
+```{r}
+# 月ごとに投稿数を集計
+date_df <- tibble::tibble(date = date_vec) %>% 
+  dplyr::count(date, name = "post") # 投稿数をカウント
+head(date_df)
+```
+
+　日ごとのときと同じです。\
+
+　投稿なしの月を含むデータフレームを作成します。
+
+```{r}
+# 作図用のデータフレームを作成
+post_df <- date_df %>% 
+  dplyr::right_join(base_df, by = "date") %>% # 月情報に統合
+  dplyr::mutate(
+    post = tidyr::replace_na(post, replace = 0), # 投稿なしを0に置換
+    year = format(date, "%Y"), # 年を抽出
+    month = format(date, "%m") # 月を抽出
+  )
+head(post_df)
+```
+
+　x軸とy軸の値として、`format()`で年と月の値を抽出します。\
+
+　投稿数のヒートマップを作成します。
+
+```{r}
+# ヒートマップを作成
+ggplot(post_df, aes(x = year, y = month, fill = post)) + 
+  geom_tile() + # ヒートマップ
+  #geom_text(mapping = aes(label = post), color = "white") + # 記事数ラベル
+  scale_fill_gradient(low = "white", high = "hotpink") + # タイルの色
+  labs(title = paste0(blog_url, "の記事投稿数"), 
+       subtitle = paste("総記事数：", sum(post_df[["post"]])), 
+       x = "年", y = "月", 
+       fill = "記事数")
+```
+
+```{r, echo=FALSE}
+### 資料作成用:(再掲)
+
+# ヒートマップを作成
+ggplot(post_df, aes(x = year, y = month, fill = post)) + 
+  geom_tile() + # ヒートマップ
+  geom_text(mapping = aes(label = post), color = "white") + # 記事数ラベル
+  scale_fill_gradient(low = "white", high = "hotpink") + # タイルの色
+  labs(title = paste0(blog_url, "の記事投稿数"), 
+       subtitle = paste("総記事数：", sum(post_df[["post"]])), 
+       x = "年", y = "月", 
+       fill = "記事数")
+```
+
+　毎年、年末年始とゴールデンウイーク辺りで頑張る感じですかね。実際は、新しい記事を書いてるときと過去記事の加筆修正をしているときがあるので、投稿数だけではこのブログの活動を可視化できません！\
+\
+
+
+### 時別
+
+　続いて、投稿日の情報は無視して、投稿時間に注目してみます。\
+\
+
+　全ての時刻(0から23の整数)を持つデータフレームを作成します。
+
+```{r}
+# 期間内の時刻情報を作成
+base_df <- tibble::tibble(hour = 0:23)
+head(base_df)
+```
+
+\ 
+
+　記事URLから投稿時刻を抽出します。
+
+```{r}
+# 記事URLを投稿日時に変換
+datetime_vec <- url_vec %>% 
+  stringr::str_remove(pattern = paste0(blog_url, "entry/")) %>% # 日時を示す文字列を抽出
+  lubridate::as_datetime(tz = "Asia/Tokyo") %>% # POSIXt型に変換
+  sort() # 昇順に並び替え
+datetime_vec[1:5]
+```
+
+\ 
+
+　時刻ごとの投稿数を集計します。
+
+```{r}
+# 時刻ごとに投稿数を集計
+hour_df <- tibble::tibble(
+  hour = lubridate::hour(datetime_vec) # 時刻を抽出
+) %>% # データフレームに変換
+  dplyr::count(hour, name = "post") # 投稿数をカウント
+head(hour_df)
+```
+
+　`lubridate`パッケージの`hour()`で時刻の値を抽出して、データフレームを作成します。\
+
+　`5`時に投稿された記事(`hour`列が`5`の行)がないのが分かります。\
+
+　投稿なしの時刻を含めたデータフレームを作成します。
+
+```{r}
+# 作図用のデータフレームを作成
+post_df <- hour_df %>% 
+  dplyr::right_join(base_df, by = "hour") %>% # 時刻情報に統合
+  dplyr::mutate(post = tidyr::replace_na(post, replace = 0)) %>% # 投稿なしを0に置換
+  dplyr::arrange(hour)
+head(post_df)
+```
+
+　`5`時の投稿数を示す行が追加されたのが分かります。\
+
+　投稿数のヒートマップを作成します。
+
+```{r}
+# ヒートマップを作成
+ggplot(post_df, aes(x = 1, y = hour, fill = post)) + 
+  geom_tile() + # ヒートマップ
+  geom_text(mapping = aes(label = post), color = "white") + # 記事数ラベル
+  scale_fill_gradient(low = "white", high = "hotpink") + # タイルの色
+  scale_x_continuous(breaks = NULL) + # x軸目盛
+  scale_y_continuous(breaks = 0:23, minor_breaks = FALSE) + # y軸目盛
+  labs(title = paste0(blog_url, "の記事投稿数"), 
+       subtitle = paste("総記事数：", sum(post_df[["post"]])), 
+       x = "", y = "時", 
+       fill = "記事数")
+```
+
+　読まれやすそうな時間と日付が変わる間際が多いですね。\
+
+　同じ値を棒グラフにしてみます。
+
+```{r}
+# 棒グラフを作成
+ggplot(post_df, aes(x = hour, y = post)) + 
+  geom_bar(stat = "identity", fill = "hotpink", color = "white") + # ヒートマップ
+  geom_text(mapping = aes(label = post), color = "hotpink", vjust = -0.5) + # 記事数ラベル
+  scale_x_continuous(breaks = 0:23, minor_breaks = FALSE) + # y軸目盛
+  labs(title = paste0(blog_url, "の記事投稿数"), 
+       subtitle = paste("総記事数：", sum(post_df[["post"]])), 
+       x = "時", y = "記事数")
+```
+
+　軸が1つなら棒グラフの方が分かりやすいですね。\
+\
+
+
+### 分別
+
+　最後に、時と分で投稿数を可視化します。\
+\
+
+　全ての時(0から23の整数)と10分間隔の分(0,10,...,50)の組み合わせを持つデータフレームを作成します。
+
+```{r}
+# 時・分情報を作成
+base_df <- tibble::tibble(
+  hour = rep(0:23, each = 6), 
+  minute = rep(0:5*10, times = 24)
+)
+head(base_df)
+```
+
+　`rep()`で要素を複製します。`each`引数は要素ごとに複製、`times`引数はベクトルを繰り返して複製します。\
+
+　記事URLから投稿時刻を抽出します
+
+```{r}
+# 記事URLを投稿日時に変換
+datetime_vec <- url_vec %>% 
+  stringr::str_remove(pattern = paste0(blog_url, "entry/")) %>% # 日時を示す文字列を抽出
+  lubridate::as_datetime(tz = "Asia/Tokyo") %>% # POSIXt型に変換
+  lubridate::floor_date(unit = "10minutes") %>% # 10分刻みに切り捨て
+  sort() # 昇順に並び替え
+datetime_vec[1:5]
+```
+
+　`floor_date()`の`unit`引数に`"10minutes"`を指定して、10分単位に切り捨てます。\
+
+　時刻ごとの投稿数を集計します。
+
+```{r}
+# 時・分ごとに投稿数を集計
+datetime_df <- tibble::tibble(
+  hour = lubridate::hour(datetime_vec), # 時を抽出
+  minute = lubridate::minute(datetime_vec) # 分を抽出
+) %>% 
+  dplyr::count(hour, minute, name = "post") # 投稿数をカウント
+head(datetime_df)
+```
+
+　`hour()`で時間、`minute()`で分の値を抽出して、データフレームを作成します。\
+
+　投稿なしの時刻を含めたデータフレームを作成します。
+
+```{r}
+# 作図用のデータフレームを作成
+post_df <- datetime_df %>% 
+  dplyr::right_join(base_df, by = c("hour", "minute")) %>% # 時・分情報に統合
+  dplyr::mutate(post = tidyr::replace_na(post, replace = 0)) %>% # 投稿なしを0に置換
+  dplyr::arrange(hour, minute) # 昇順に並び替え
+head(post_df)
+```
+
+　`right_join()`の`by`引数に列名のベクトルを指定することで、複数の列でマッチして結合できます。\
+
+　投稿数のヒートマップを作成します。
+
+```{r}
+# ヒートマップを作成
+ggplot(post_df, aes(x = hour, y = minute, fill = post)) + 
+  geom_tile() + # ヒートマップ
+  geom_text(mapping = aes(label = post), color = "white") + # 記事数ラベル
+  scale_fill_gradient(low = "white", high = "hotpink") + # タイルの色
+  scale_x_continuous(breaks = 0:23, minor_breaks = FALSE) + # x軸目盛
+  scale_y_continuous(breaks = 0:5*10, minor_breaks = FALSE) + # y軸目盛
+  labs(title = paste0(blog_url, "の記事投稿数"), 
+       subtitle = paste("総記事数：", sum(post_df[["post"]])), 
+       x = "時", y = "分", 
+       fill = "記事数")
+```
+
+　予約投稿のときは切りのよい00分や30分に設定するので、このようなグラフになります。後は、日付の変わるギリギリに投稿するのが見えます。\
+\
+
+　以上で、ブログの更新数をヒートマップで可視化できました。\
+\
+
+
+## 正確な投稿日時の取得
+
+　ちなみに、正確な投稿日時は次のようにして得られます。
+
+```{r}
+# 記事番号を指定
+i <- 1
+
+# 記事URLを取り出し
+entry_url <- url_vec[i]
+
+# 記事HTMLを取得
+entry_html <- rvest::read_html(entry_url)
+
+# 記事テキストを抽出
+entry_datetime <- entry_html %>% 
+  #rvest::html_elements("header") %>% # ヘッダー
+  rvest::html_elements(".entry-date") %>% # 記事の日時データ
+  rvest::html_elements("time") %>% # 投稿日時
+  rvest::html_attr("datetime") %>% # 日時データ
+  lubridate::as_datetime(tz = "UTC") %>% # POLITXt型に変換
+  lubridate::as_datetime(tz = "Asia/Tokyo") # 日本標準時に変換
+entry_url; entry_datetime
+```
+
+　ただし、このやり方だと1記事ずつアクセスする必要があります。\
+\
+
+
+# 記事テキストのスクレイピング
+
+　前回は、はてなブログにおける記事のURLを収集しました。今回は、記事URLを使って、記事のテキストを収集します。\
+\
+
+　次のパッケージを利用します。
+
+```{r, eval=FALSE}
+# 利用パッケージ
+library(rvest)
+library(polite)
+library(magrittr)
+```
+
+```{r}
+### 資料作成用:(チェック用)
+
+# 利用パッケージ
+library(magrittr)
+
+# URLデータを読み込み
+url_vec <- readRDS(file = "data/ch6_2/url.rds")
+```
+
+　`rvest`と`polite`は、スクレイピングに関するパッケージです。詳しくは、本の6-2節と6-7節を参照してください。\
+　この記事では、`パッケージ名::関数名()`の記法を使うので、パッケージを読み込む必要はありません。\
+　ただし、パイプ演算子`%>%`を使うため、`magrittr`パッケージは読み込む必要があります。\
+\
+
+
+## 記事テキストの収集
+
+　前回取得した記事URLのベクトルから、テキストを取得する記事のURLを取り出します。\
+
+　対象とする年と月を指定します。
+
+```{r}
+# 年月を指定
+year  <- 2022
+month <- 4
+```
+
+　はてなブログの記事URLは、(デフォルトでは)ブログURLの後に投稿時間が付いて`ブログURL/entry/yyyy/mm/dd/hhmmss`となります。\
+
+　そこで、検索用の文字列`yyyy/mm`を作成します。
+
+```{r}
+# 年月の文字列を作成
+year_month <- paste0(year, "/", stringr::str_pad(month, width = 2, pad = 0))
+year_month
+```
+
+　月の値を`str_pad()`で2桁表示にします。この例だと、`4`が`"04"`になります。\
+
+　指定した月に投稿された記事URLのインデックスを抽出します。
+
+```{r}
+# 期間内の記事URLのインデックスを抽出
+target_idx <- stringr::str_which(url_vec, pattern = year_month)
+target_idx[1:5]
+```
+
+　`str_which()`は、該当する文字列を含む要素のインデックスを返しします。\
+
+　このインデックスを使って、記事URLを取り出せます。
+
+```{r}
+# 記事URLを取り出し
+url_vec[target_idx][1:5]
+```
+
+　1記事ずつ取り出して使います。\
+
+　スクレイピングのルールを確認しておきます。
+
+```{r}
+# 記事URLを取り出し
+entry_url <- url_vec[target_idx[1]]
+
+# スクレイピングルールの確認
+session <- polite::bow(url = entry_url)
+session
+```
+
+　`polite`パッケージの`bow()`で確認できます。詳しくは6-7節を参照してください。\
+
+　抽出した記事URLを1つずつ使って、記事のテキストを取得します。
+
+```{r, eval=FALSE}
+# 記事ごとにテキストをスクレイピング
+entry_text_vec <- c()
+for(idx in target_idx) {
+  
+  # 記事URLを取り出し
+  entry_url <- url_vec[idx]
+  print(entry_url)
+  
+  # 記事HTMLを取得
+  entry_html <- rvest::read_html(entry_url)
+  #session <- polite::nod(bow = session, path = entry_url)
+  #entry_html <- polite::scrape(bow = session) # politeパッケージの場合
+  
+  # 記事テキストを抽出
+  entry_text <- entry_html %>% 
+    rvest::html_elements(".entry-content") %>% # 記事の内容
+    rvest::html_text() # テキストを取得
+  
+  # 同じ月のテキストを結合
+  entry_text_vec <- c(entry_text_vec, entry_text)
+  
+  # 処理を一時停止
+  Sys.sleep(20)
+  #sleep_bar(20)
+}
+
+# 書き出し用のパスを作成
+file_path <- paste0("data/ch6_2/entry_text/", stringr::str_replace(year_month, pattern = "/", replacement = "_"), ".txt")
+
+# テキストを書き出し
+write(paste0(entry_text_vec, collapse = "\n"), file = file_path)
+```
+
+　`rvest`パッケージの`read_html()`または`polite`パッケージの`scrape()`で、記事のHTMLを取得します。\
+　記事ページにはヘッダーやサイドバーなども含まれます。記事の内容は`<div class="entry-content">～</div>`の部分なので、`html_elements(".entry-content")`で抜き出します。\
+　さらに、`html_text()`でテキストを抜き出します。\
+
+　各記事のテキストを`entry_text`として、全ての記事テキストを`entry_text_vec`に追加していきます。\
+　指定した月の記事のテキストが得られたら、`write()`でテキストファイルとして書き出します。`file`引数に保存するファイルパス(`"(保存する)フォルダ名/(作成する)ファイル名.txt"`)を指定します。この例では、ファイル名を`yyyy_mm.txt`とします。\
+\
+
+　複数年をループ処理する場合は、次のように行います。
+
+```{r, eval=FALSE}
+# 年を切り替え
+for(year in year_from:year_to) {
+  # 月を切り替え
+  for(month in 1:12) {
+    # 記事インデックスを作成:(処理は省略)
+    target_idx
+    
+    # 記事が無ければ次の月に進む
+    if(length(target_idx) == 0) next
+    
+    # 記事ごとにテキストをスクレイピング:(処理は省略)
+    for(idx in target_idx) {
+      entry_text_vec
+    }
+    
+    # テキストを書き出し:(処理は省略)
+    write()
+  }
+}
+```
+
+　投稿がない月の場合は`target_idx`が要素を持たないので、`if()`と`next`を使って次の月に進みます。\
+\
+
+
+# 棒グラフによる頻度上位語の可視化
+
+　ブログによく登場する単語を棒グラフで可視化します。\
+\
+
+　次のパッケージを利用します。
+
+```{r, eval=FALSE}
+# 利用パッケージ
+library(RMeCab)
+library(tidyverse)
+```
+
+```{r, echo=FALSE}
+### 資料作成用:(チェック用)
+
+# 利用パッケージ
+library(magrittr)
+library(ggplot2)
+```
+
+　`RMeCab`は、RからMeCabを利用するためのパッケージです。形態素解析器MeCabがインストールされている必要があります。\
+　この記事では、基本的に`パッケージ名::関数名()`の記法を使うので、パッケージを読み込む必要はありません。\
+　ただし、パイプ演算子`%>%`を使うため`magrittr`と、作図コードがごちゃごちゃしないようにパッケージ名を省略するため`ggplot2`は読み込む必要があります。\
+\
+
+
+### 形態素解析
+
+　まずは、形態素解析を行い、文章を単語(形態素)に分解します。\
+\
+
+　テキストファイルのパスを指定します。
+
+```{r}
+# 年月を指定
+year  <- 2022
+month <- 3
+
+# テキストのファイルパスを作成
+file_name <- paste0(year, "_", stringr::str_pad(month, width = 2, pad = 0), ".txt")
+file_path <- paste0("data/ch6_2/entry_text/", file_name)
+file_path
+```
+
+　前回と次回の内容との対応からこのように処理しています。テキストファイルを棒グラフにするのであれば、ファイルパスをそのまま文字列で指定してください。\
+
+　形態素解析を行います。
+
+```{r}
+# MeCabによる形態素解析
+mecab_df <- RMeCab::docDF(target = file_path, type = 1) %>% 
+  tibble::as_tibble()
+head(mecab_df)
+```
+
+　`RMeCab`パッケージの`docDF()`で、形態素解析を行います。`target`(第1引数)にテキストのファイルパス、`type`引数に`1`を指定します。\
+
+　`TERM`列は単語、`POS1`列は品詞大分類、`POS2`列は品詞小分類です。4列目は各単語の頻度で、テキストファイル名が列名になります。\
+\
+
+　以上で、文章を単語に分かち書きできました。\
+\
+
+
+### 単語の集計
+
+　次に、記事の内容を反映する単語を抽出します。\
+\
+
+　記号類や意味を持たない単語などを取り除く設定をします。
+
+```{r}
+# 単語数を指定
+term_size <- 100
+
+# 利用する品詞を指定
+pos1_vec <- c("名詞", "動詞", "形容詞")
+pos2_vec <- c("一般", "固有名詞", "サ変接続", "形容動詞語幹", "ナイ形容詞語幹", "自立")
+
+# 削除する単語を指定
+stopword_symbol_vec <- c("\\(", "\\)", "\\{", "\\}", "\\[", "]", "「", "」", ",", "_", "--", "!", "#", "\\.", "\\$", "\\\\")
+stopword_term_vec <- c("る", "ある", "する", "せる", "できる", "なる", "やる", "れる", "いい", "ない")
+```
+
+　利用する品詞大分類を`pos1_vec`、品詞小分類を`pos2_vec`として指定します。\
+　削除する記号と単語を`stopword_***_vec`に指定します。正規表現に使われる記号の場合は、エスケープ文字`\\`を付ける必要があります。\
+　それぞれ結果を見ながら指定してください。\
+
+　利用する単語を抽出して、出現頻度を再集計し、出現頻度の上位単語を抽出します。
+
+```{r}
+# 頻出語を抽出
+freq_df <- mecab_df %>% 
+  dplyr::filter(POS1 %in% pos1_vec) %>% # 指定した品詞大分類を抽出
+  dplyr::filter(POS2 %in% pos2_vec) %>% # 指定した品詞小分類を抽出
+  dplyr::filter(!stringr::str_detect(TERM, pattern = paste0(stopword_symbol_vec, collapse = "|"))) %>% # 指定した記号を削除
+  dplyr::filter(!stringr::str_detect(TERM, pattern = paste0(stopword_term_vec, collapse = "|"))) %>% # 指定した単語を削除
+  dplyr::select(term = TERM, frequency = file_name) %>% # 単語と頻度の列を取り出し
+  dplyr::group_by(term) %>% # 単語でグループ化
+  dplyr::summarise(frequency = sum(frequency), .groups = "drop") %>% # 同一単語の頻度を合計
+  dplyr::arrange(dplyr::desc(frequency)) %>% # 降順に並び替え
+  head(term_size) # 頻出語を抽出
+head(freq_df)
+```
+
+　`filter()`で単語を抽出して、`summarise()`で重複語の頻度を合計して、`arrange()`と`head()`で頻度が多い単語を抽出します。\
+
+　処理の塊ごとに確認していきます。\
+
+<details><summary>・処理の確認(クリックで展開)</summary>
+
+　利用する品詞を抽出して、不要な単語を削除します。
+
+```{r}
+# 不要な単語を削除
+tmp1_df <- mecab_df %>% 
+  dplyr::filter(POS1 %in% pos1_vec) %>% # 指定した品詞大分類を抽出
+  dplyr::filter(POS2 %in% pos2_vec) %>% # 指定した品詞小分類を抽出
+  dplyr::filter(!stringr::str_detect(TERM, pattern = paste0(stopword_symbol_vec, collapse = "|"))) %>% # 指定した記号を削除
+  dplyr::filter(!stringr::str_detect(TERM, pattern = paste0(stopword_term_vec, collapse = "|")))
+tmp1_df
+```
+
+　`filter()`で利用する単語を抽出します。抽出する際の条件に、次の2つの方法を使います。\
+
+　`%in%`演算子を使って、利用する品詞の行を抽出します。
+
+```{r}
+# 要素を含むか検索
+"a" %in% c("a", "b", "c")
+"d" %in% c("a", "b", "c")
+```
+
+　`%in%`の左側の要素が、右側の要素に含まれていれば`TRUE`、含まなければ`FALSE`になります。\
+
+　`str_detect()`を使って、利用しない単語の行を削除します。
+
+```{r}
+# 文字列を含むか検索
+stringr::str_detect("a", pattern = "a|b|c")
+stringr::str_detect("d", pattern = "a|b|c")
+```
+
+　第1引数の要素に、`pattern`引数に指定した文字列が含まれていれば`TRUE`、含まなければ`FALSE`を返します。`|`は、「または」を表す記号です。\
+
+　条件に合う単語を削除したいので、`!`を付けて`TRUE`と`FALSE`を反転させます。
+
+```{r}
+# 結果を反転
+!stringr::str_detect("a", pattern = "a|b|c")
+!stringr::str_detect("d", pattern = "a|b|c")
+```
+
+\ 
+
+　単語の頻度を再集計します。
+
+```{r}
+# 頻度を再集計
+tmp2_df <- tmp1_df %>% # 指定した単語を削除
+  dplyr::select(term = TERM, frequency = file_name) %>% # 単語と頻度の列を取り出し
+  dplyr::group_by(term) %>% # 単語でグループ化
+  dplyr::summarise(frequency = sum(frequency), .groups = "drop") # 同一単語の頻度を合計
+tmp2_df
+```
+
+　`select()`で、単語列と頻度列を取り出して、扱いやすいように列名を変更します。\
+
+　品詞の情報を落とすので、品詞の異なる同一単語が重複して存在することになります。\
+　そこで、`group_by()`で単語をグループ化して、`summarise()`と`sum()`で頻度を合算します。\
+
+　出現頻度の上位単語を抽出します。
+
+```{r}
+# 頻度上位単語を抽出
+tmp3_df <- tmp2_df %>% 
+  dplyr::arrange(dplyr::desc(frequency)) %>% # 降順に並び替え
+  head(n = term_size) # 頻出語を抽出
+tmp3_df
+```
+
+　`arrange()`と`desc()`で頻度が多い順に並び替えて、`head()`で指定した単語数の上位単語を抽出します。\
+\
+
+　品詞の異なる同一単語について簡単に補足します。\
+
+　例えば、「モーニング娘。の歌」の「歌」は「名詞-一般」で、「ドラマの主題歌」の「歌」は「名詞-接尾」になります。「主題歌」で1つの単語ですが、「主題」と「歌」に分割されます。後者のように、単語をさらに分解したものは形態素と呼ばれます。形態素は意味を持つ最小の単位のことで、前者の「歌」は単語であり形態素でもあります。形態素を更に分割した単位は文字です。\
+　形態素解析は、文章を(単語ではなく)形態素の単位に分解します。なので、単語ではなく形態素と呼ぶべきですが、この記事では分かりやすさを優先して単語と呼ぶことにします。
+
+</details>
+
+\ 
+
+　以上で、前処理ができました。\
+\
+
+
+### 棒グラフによる可視化
+
+　最後に、単語の出現頻度を棒グラフで可視化します。\
+\
+
+　出現頻度の棒グラフを作成します。
+
+```{r}
+# 棒グラフを作成
+graph <- ggplot(freq_df, aes(x = reorder(term, frequency), y = frequency)) + 
+  geom_bar(stat = "identity", fill = "hotpink", color = "white") + # 棒グラフ
+  #theme(axis.text.y = element_text(size = 15)) + # x軸目盛ラベル
+  coord_flip(expand = FALSE) + # 軸の入れ替え
+  labs(title = paste0(year, "年", month, "月の頻出語"), 
+       x = "単語", y = "頻度")
+graph
+```
+
+　`coord_filp()`でx軸とy軸を入れ替えます。`expand = FALSE`を指定すると、グラフ領域の余白をなくし、バーと軸が接する図になります。\
+
+　作成したグラフは、`ggsave()`で保存できます。
+
+```{r}
+# グラフを保存
+ggplot2::ggsave(
+  filename = paste0("figure/ch6_2/term_", year, "_", month, ".png"), plot = graph, 
+  dpi = 100, width = 9, height = 18
+)
+```
+
+　`plot`引数にグラフ、`filename`引数に保存するファイルパスを指定します。`"(保存する)フォルダ名/(作成する)ファイル名.png"`でファイルを作成できます。\
+\
+
+　以上で、ブログ記事を可視化できました。\
+\
+
+
+# バーチャートレースによる頻度上位語の可視化
+
+　前回は、指定した月に登場した単語の頻度を棒グラフで可視化しました。今回は、期間を指定して、月ごとの単語の推移をバーチャートレースで可視化します。\
+\
+
+　次のパッケージを利用します。
+
+```{r, eval=FALSE}
+# 利用するパッケージ
+library(RMeCab)
+library(tidyverse)
+library(gganimate)
+```
+
+```{r, echo=FALSE}
+### 資料作成用:(チェック用)
+
+# 利用パッケージ
+library(magrittr)
+library(ggplot2)
+```
+
+　`RMeCab`は、RからMeCabを利用するためのパッケージです。形態素解析器MeCabがインストールされている必要があります。\
+　`gganimate`は、`ggplot2`を使ったグラフのアニメーション(gif画像)を作成するためのパッケージです。\
+　この記事では、基本的に`パッケージ名::関数名()`の記法を使うので、パッケージを読み込む必要はありません。\
+　ただし、パイプ演算子`%>%`を使うため`magrittr`と、作図コードがごちゃごちゃしないようにパッケージ名を省略するため`ggplot2`は読み込む必要があります。\
+\
+
+
+## 形態素解析
+
+　まずは、形態素解析を行い、文章を単語(形態素)に分解します。\
+\
+
+　フォルダを指定して、フォルダ内の全てのテキストに対して形態素解析を行います。
+
+```{r, eval=FALSE}
+# フォルダパスを指定
+dir_path <- "data/ch6_2/entry_text"
+
+# MeCabによる形態素解析
+mecab_df <- RMeCab::docDF(target = dir_path, type = 1) %>% 
+  tibble::as_tibble()
+head(mecab_df)
+```
+
+```{r, echo=FALSE}
+### 資料作成用:(データの読込)
+
+# 形態素解析データを読み込み
+mecab_df <- readRDS(file = "data/ch6_2/mecab.rds")
+head(mecab_df)
+```
+
+　`RMeCab`パッケージの`docDF()`で、形態素解析を行います。`target`(第1引数)にフォルダパス、`type`引数に`1`を指定します。\
+
+　`TERM`列は単語(形態素)、`POS1`列は品詞大分類、`POS2`列は品詞小分類です。4列目以降は各テキストに対応していて、ファイル名が列名になり、そのテキストにおける単語の頻度が値になります。\
+\
+
+　以上で、文章を単語に分かち書きできました。\
+\
+
+
+## 単語の集計 
+
+　次に、記事の内容を反映する単語を抽出します。\
+\
+
+　記号類や意味を持たない単語などを取り除く設定をします。
+
+```{r}
+# 単語数を指定
+max_rank <- 100
+
+# 利用する品詞を指定
+pos1_vec <- c("名詞", "動詞", "形容詞")
+pos2_vec <- c("一般", "固有名詞", "サ変接続", "形容動詞語幹", "ナイ形容詞語幹", "自立")
+
+# 削除する単語を指定
+stopword_symbol_vec <- c("\\(", "\\)", "\\{", "\\}", "\\[", "]", "「", "」", ",", "_", "--", "!", "#", "\\.", "\\$", "\\\\")
+stopword_term_vec <- c("る", "ある", "する", "せる", "できる", "なる", "やる", "れる", "いい", "ない")
+```
+
+　利用する品詞大分類を`pos1_vec`、品詞小分類を`pos2_vec`として指定します。\
+　削除する記号と単語を`stopword_***_vec`に指定します。正規表現に使われる記号の場合は、エスケープ文字`\\`を付ける必要があります。\
+　それぞれ結果を見ながら指定してください。\
+
+　利用する単語を抽出して、出現頻度を再集計し、出現頻度の上位単語を抽出します。
+
+```{r}
+# 頻出語を抽出
+rank_df <- mecab_df %>% 
+  dplyr::filter(POS1 %in% pos1_vec) %>% # 指定した品詞大分類を抽出
+  dplyr::filter(POS2 %in% pos2_vec) %>% # 指定した品詞小分類を抽出
+  dplyr::filter(!stringr::str_detect(TERM, pattern = paste0(stopword_symbol_vec, collapse = "|"))) %>% # 不要な記号を削除
+  dplyr::filter(!stringr::str_detect(TERM, pattern = paste0(stopword_term_vec, collapse = "|"))) %>% # 不要な単語を削除
+  dplyr::select(term = TERM, !c("POS1", "POS2")) %>% # 単語と頻度の列を取り出し
+  tidyr::pivot_longer(cols = !term, names_to = "date", values_to = "frequency") %>% # 頻度列をまとめる
+  dplyr::mutate(
+    date = date %>% 
+      stringr::str_remove(pattern = ".txt") %>% 
+      stringr::str_replace(pattern = "_", replacement = "-") %>% 
+      stringr::str_c("-01") %>% 
+      lubridate::as_date()
+  ) %>% # 日付情報に変換
+  dplyr::group_by(term, date) %>% # 単語と月でグループ化
+  dplyr::summarise(frequency = sum(frequency), .groups = "drop") %>% # 頻度を合計
+  dplyr::arrange(date, frequency) %>% # 昇順に並び替え
+  dplyr::group_by(date) %>% # 月でグループ化
+  dplyr::mutate(ranking = dplyr::row_number(-frequency)) %>% # 月ごとにランク付け
+  dplyr::ungroup() %>% # グループ化を解除
+  dplyr::filter(ranking <= max_rank) %>% # 頻度上位単語を抽出
+  dplyr::arrange(date, ranking) # 昇順に並び替え
+head(rank_df)
+```
+
+　`filter()`で単語を抽出して、`pivot_longer()`で頻度列をまとめて、`summarise()`で重複語の頻度を合計して、`arrange()`と`head()`で頻度が多い単語を抽出します。\
+
+　処理の塊ごとに確認していきます。\
+
+<details><summary>・処理の確認(クリックで展開)</summary>
+
+　利用する品詞を抽出して、不要な単語を削除します。
+
+```{r}
+# 頻出語を抽出
+tmp1_df <- mecab_df %>% 
+  dplyr::filter(POS1 %in% pos1_vec) %>% # 指定した品詞大分類を抽出
+  dplyr::filter(POS2 %in% pos2_vec) %>% # 指定した品詞小分類を抽出
+  dplyr::filter(!stringr::str_detect(TERM, pattern = paste0(stopword_symbol_vec, collapse = "|"))) %>% # 不要な記号を削除
+  dplyr::filter(!stringr::str_detect(TERM, pattern = paste0(stopword_term_vec, collapse = "|"))) %>% # 不要な単語を削除
+  dplyr::select(term = TERM, !c("POS1", "POS2")) # 単語と頻度の列を取り出し
+tmp1_df
+```
+
+　`filter()`で利用する単語を抽出します。詳しくは前回の記事を参照してください。\
+　`select()`で、単語列と頻度列を取り出して、扱いやすいように列名を変更します。\
+
+　全てのテキストの頻度列をまとめます。
+
+```{r}
+tmp2_df <- tmp1_df %>% 
+  tidyr::pivot_longer(cols = !term, names_to = "date", values_to = "frequency") %>% # 頻度列をまとめる
+  dplyr::mutate(
+    date = date %>% 
+      stringr::str_remove(pattern = ".txt") %>% 
+      stringr::str_replace(pattern = "_", replacement = "-") %>% 
+      stringr::str_c("-01") %>% 
+      lubridate::as_date()
+  ) # 日付情報に変換
+tmp2_df
+```
+
+　`pivot_longer()`で、各テキストの頻度列を、ファイル名列(`date`)と頻度列(`frequency`)にまとめます。\
+
+　ファイル名列を日付列に変換します。ファイル名は`yyyy_mm.txt`なので、削除`str_remove()`・置換`str_replace()`・結合`str_c()`を使って`yyyy-mm-01`にして、さらに`as_date()`でDate型に変換します。\
+
+　頻度を再集計します。
+
+```{r}
+tmp3_df <- tmp2_df %>% 
+  dplyr::group_by(term, date) %>% # 単語と月でグループ化
+  dplyr::summarise(frequency = sum(frequency), .groups = "drop") %>% # 頻度を合計
+  dplyr::arrange(date, frequency) # 昇順に並び替え
+tmp3_df
+```
+
+　品詞の情報を落としたので、品詞の異なる同一単語が重複して存在することになります。\
+　そこで、`group_by()`で単語と月(テキスト)でグループ化して、`summarise()`と`sum()`で頻度を合算します。\
+
+　頻度が多い順にランキングを付けます。
+
+```{r}
+tmp4_df <- tmp3_df %>% # 昇順に並び替え
+  dplyr::group_by(date) %>% # 月でグループ化
+  dplyr::mutate(ranking = dplyr::row_number(-frequency)) %>% # 月ごとにランク付け
+  dplyr::ungroup() %>% # グループ化を解除
+  dplyr::filter(ranking <= max_rank) %>% # 頻度上位単語を抽出
+  dplyr::arrange(date, ranking) # 昇順に並び替え
+tmp4_df
+```
+
+　月でグループ化することで、テキストごとに処理できます。\
+　`row_number()`で通し番号を付けます。\
+
+　指定した単語数までの上位単語を抽出します。
+
+</details>
+
+\ 
+
+　以上で、前処理ができました。\
+\
+
+
+## バーチャートレースの作成
+
+　最後に、単語の出現頻度の推移をバーチャートレースで可視化します。\
+\
+
+　フレーム数を指定します。
+
+```{r}
+# フレーム数を取得
+n <- length(unique(rank_df[["date"]]))
+
+# 遷移フレーム数を指定
+t <- 8
+
+# 停止フレーム数を指定
+s <- 2
+```
+
+　基本となるフレーム数(月の数)を`n`とします。\
+　現月と次月のグラフを繋ぐアニメーションのフレーム数を`t`として、整数を指定します。\
+　各月のグラフで一時停止するフレーム数を`s`として、整数を指定します。\
+
+　出現頻度のバーチャートレースを作成します。1つ目は、y軸を最大値で固定して描画します。
+
+```{r}
+# バーチャートレースを作成:(y軸固定)
+anim <- ggplot(rank_df, aes(x = ranking, y = frequency, fill = term, color = term)) + 
+  geom_bar(stat = "identity", width = 0.9, alpha = 0.8) + # 棒グラフ
+  geom_text(aes(y = 0, label = paste(term, " ")), hjust = 1) + # 単語ラベル
+  geom_text(aes(label = paste(" ", frequency)), hjust = 0) + # 頻度ラベル
+  gganimate::transition_states(states = date, transition_length = t, state_length = s, wrap = FALSE) + # フレーム
+  gganimate::ease_aes("cubic-in-out") + # アニメーションの緩急
+  coord_flip(clip = "off", expand = FALSE) + # 軸の入替
+  scale_x_reverse() + # x軸の反転
+  theme(
+    axis.title.y = element_blank(), # 縦軸のラベル
+    axis.text.y = element_blank(), # 縦軸の目盛ラベル
+    axis.ticks.y = element_blank(), # 縦軸の目盛指示線
+    #panel.grid.major.x = element_line(color = "grey", size = 0.1), # 横軸の主目盛線
+    panel.grid.major.y = element_blank(), # 縦軸の主目盛線
+    panel.grid.minor.y = element_blank(), # 縦軸の補助目盛線
+    panel.border = element_blank(), # グラフ領域の枠線
+    #panel.background = element_blank(), # グラフ領域の背景
+    plot.title = element_text(color = "black", face = "bold", size = 20, hjust = 0.5), # 全体のタイトル
+    plot.subtitle = element_text(color = "black", size = 15, hjust = 0.5), # 全体のサブタイトル
+    plot.margin = margin(t = 10, r = 50, b = 10, l = 100, unit = "pt"), # 全体の余白
+    legend.position = "none" # 凡例の表示位置
+  ) + # 図の体裁
+  labs(
+    title = "https://www.anarchive-beta.com/の頻度上位語", 
+    subtitle = "{lubridate::year(closest_state)}年{lubridate::month(closest_state)}月", 
+    y = "頻度"
+  ) # ラベル
+```
+
+\ 
+
+　2つ目は、グラフごとにy軸の範囲が変化します。
+
+```{r}
+# バーチャートレースを作成:(y軸可変)
+anim <- ggplot(rank_df, aes(x = ranking, y = frequency, fill = term, color = term)) + 
+  geom_bar(stat = "identity", width = 0.9, alpha = 0.8) + # 棒グラフ
+  geom_text(aes(y = 0, label = paste(term, " ")), hjust = 1) + # 単語ラベル
+  geom_text(aes(label = paste(" ", frequency, "回")), hjust = 0) + # 頻度ラベル
+  gganimate::transition_states(states = date, transition_length = t, state_length = s, wrap = FALSE) + # フレーム
+  gganimate::ease_aes("cubic-in-out") + # アニメーションの緩急
+  coord_flip(clip = "off", expand = FALSE) + # 軸の入替
+  scale_x_reverse() + # x軸の反転
+  gganimate::view_follow(fixed_x = TRUE) + # フレームごとに表示範囲を調整
+  theme(
+    axis.title.x = element_blank(), # 横軸のラベル
+    axis.title.y = element_blank(), # 縦軸のラベル
+    axis.text.x = element_blank(), # 横軸の目盛ラベル
+    axis.text.y = element_blank(), # 縦軸の目盛ラベル
+    axis.ticks.x = element_blank(), # 横軸の目盛指示線
+    axis.ticks.y = element_blank(), # 縦軸の目盛指示線
+    #panel.grid.major.x = element_line(color = "grey", size = 0.1), # 横軸の主目盛線
+    panel.grid.major.y = element_blank(), # 縦軸の主目盛線
+    panel.grid.minor.x = element_blank(), # 横軸の補助目盛線
+    panel.grid.minor.y = element_blank(), # 縦軸の補助目盛線
+    panel.border = element_blank(), # グラフ領域の枠線
+    #panel.background = element_blank(), # グラフ領域の背景
+    plot.title = element_text(color = "black", face = "bold", size = 20, hjust = 0.5), # 全体のタイトル
+    plot.subtitle = element_text(color = "black", size = 15, hjust = 0.5), # 全体のサブタイトル
+    plot.margin = margin(t = 10, r = 50, b = 10, l = 100, unit = "pt"), # 全体の余白
+    legend.position = "none" # 凡例の表示位置
+  ) + # 図の体裁
+  labs(
+    title = "https://www.anarchive-beta.com/の頻度上位語", 
+    subtitle = "{lubridate::year(closest_state)}年{lubridate::month(closest_state)}月"
+  ) # ラベル
+```
+
+　y軸(横軸)を可変にすると、月ごとに正規化されたようなグラフになり、単語の総数(記事の数)の影響が緩和されます。\
+　バーチャートレースの作成については別記事を参照してください。\
+
+　`animate()`でgif画像を作成します。
+
+```{r, eval=FALSE}
+# gif画像を作成
+g <- gganimate::animate(
+  plot = anim, nframes = n*(t+s), fps = t+s, width = 900, height = 1200
+)
+g
+```
+
+　`plot`引数にグラフ、`nframes`引数にフレーム数、`fps`引数に1秒当たりのフレーム数を指定します。\
+
+　`anim_save()`でgif画像を保存します。
+
+```{r, eval=FALSE}
+# gif画像を保存
+gganimate::anim_save(filename = "フォルダ名/BarChartRace.gif", animation = g)
+```
+
+　`filename`引数にファイルパス(`"(保存する)フォルダ名/(作成する)ファイル名.gif"`)、`animation`引数に作成したgif画像を指定します。\
+
+　動画を作成する場合は、`renderer`引数を指定します。
+
+```{r, eval=FALSE}
+# 動画を作成と保存
+m <- gganimate::animate(
+  plot = anim, nframes = n*(t+s), fps = t+s, width = 900, height = 1200, 
+  renderer = gganimate::av_renderer(file = "フォルダ名/BarChartRace.mp4")
+)
+```
+
+　`renderer`引数に、レンダリング方法に応じた関数を指定します。この例では、`av_renderer()`を使います。\
+　`av_renderer()`の`file`引数に保存先のファイルパス(`"(保存する)フォルダ名/(作成する)ファイル名.mp4"`)を指定します。\
+\
+
+　以上で、ブログ記事の変化を可視化できました。\
+\
+
